@@ -1,0 +1,37 @@
+#!/bin/env python
+
+
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
+from builtins import *
+import argparse
+import hashlib
+
+
+def gen_id(name, extended=False):
+    """Generate a numerical ID from a user/group name.
+    """
+    digest = int(hashlib.sha512(name.encode('ascii')).hexdigest(), 16)
+    if extended:
+        return int(hex(digest + 0x10000)[-9:-1], 16)
+    return int(hex(digest + 0x1000)[-5:-1], 16)
+
+
+def __parse_args():
+    parser = argparse.ArgumentParser(
+        description=('Generate a repeatable UID/GID from a ' +
+                     'given username/groupname.'))
+    parser.add_argument(
+        'name', type=str,
+        help='username/groupname to generate ID for')
+    parser.add_argument(
+        '--extended', '-e', action='store_true',
+        help=('enables extended 32-bit UID range instead of the ' +
+              'default 16-bit range'))
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = __parse_args()
+    id_ = gen_id(args.name, extended=args.extended)
+    print('{:s} hex={:s} dec={:d}'.format(args.name, format(id_, 'x'), id_))
