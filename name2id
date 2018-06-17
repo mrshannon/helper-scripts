@@ -11,10 +11,10 @@ import hashlib
 def gen_id(name, extended=False):
     """Generate a numerical ID from a user/group name.
     """
-    digest = int(hashlib.sha512(name.encode('ascii')).hexdigest(), 16)
+    digest = int(hashlib.sha1(name.encode('ascii')).hexdigest(), 16)
     if extended:
-        return int(hex(digest + 0x10000)[-9:-1], 16)
-    return int(hex(digest + 0x1000)[-5:-1], 16)
+        return int(hex(digest + 0x10000)[-8:], 16)
+    return int(hex(digest + 0x1000)[-4:], 16)
 
 
 def __parse_args():
@@ -34,4 +34,4 @@ def __parse_args():
 if __name__ == "__main__":
     args = __parse_args()
     id_ = gen_id(args.name, extended=args.extended)
-    print('{:s} hex={:s} dec={:d}'.format(args.name, format(id_, 'x'), id_))
+    print(id_)
