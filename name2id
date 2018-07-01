@@ -20,8 +20,18 @@ import hashlib
 def gen_id(name, extended=False):
     """Generate a numerical ID from a user/group name.
 
-    The returned UID/GID will be 4096 or greater, or 65536 or greater if
-    32-bit UID/GIDs are enabled.
+    The returned UID/GID will be in the range 10000 to 59999 or
+    100000000 to 999999999) if 32-bit UID/GIDs are enabled.
+    
+    The first range allows ID's 1000 to 9999 to be for used manually
+    created users and does not interfere with some systems that use ID's
+    in the 600000 range for special users such as nobody.
+
+    It is recommended to stick with the standard range unless you are
+    likely to have more than 100 users, in which case the chance of a
+    hash collision exceeds 1% and the extended version should be used.
+    The extended version exceeds 1% chance of hash collision at about
+    4000 users.
 
     Parameters
     ----------
@@ -32,9 +42,10 @@ def gen_id(name, extended=False):
 
     """
     digest = int(hashlib.sha1(name.encode('ascii')).hexdigest(), 16)
+
     if extended:
-        return int(hex(digest + 0x10000)[-8:], 16)
-    return int(hex(digest + 0x1000)[-4:], 16)
+        return digest % (999999999 - 100000000 + 1) + 100000000
+    return digest % (59999 - 10000 + 1) + 10000
 
 
 def __parse_args():
