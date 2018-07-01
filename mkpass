@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+
+# Thanks: https://unix.stackexchange.com/a/76337
+# Thanks: https://stackoverflow.com/a/31124505
+
+import sys
+import crypt
+import getpass
+import argparse
+
+
+__all__ = ('gen_hash',)
+
+
+def gen_hash(password, method):
+    return crypt.crypt(password, crypt.mksalt(method))
+
+
+class CustomHelpFormatter(argparse.HelpFormatter):
+    def _format_action_invocation(self, action):
+        if not action.option_strings or action.nargs == 0:
+            return super()._format_action_invocation(action)
+        default = self._get_default_metavar_for_optional(action)
+        args_string = self._format_args(action, default)
+        return ', '.join(action.option_strings) + ' ' + args_string
+
+
+def upper(string):
+    return str(string).upper()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        formatter_class=CustomHelpFormatter,
+        description=("Generates a password hash using the system's "
+                     "crypt library."))
+    parser.add_argument(
+        '-m', '--method', type=upper, metavar='METHOD',
+        choices=[m.name for m in crypt.methods],
+        default=crypt.methods[0].name,
+        help=('hashing method to use, '
+              'the strongest method will be used by default'))
+    parser.add_argument(
+        'password', nargs='?',
+        help='if not provided a password propt will be used')
+    args = vars(parser.parse_args())
+    return args
+
+
+def main():
+    args = parse_args()
+    method = [m for m in crypt.methods if m.name == args['method']][0]
+    if args['password']:
+        hash_ = gen_hash(args['password'], method=method)
+    else:
+        password1 = getpass.getpass()
+        password2 = getpass.getpass('Renter password: ')
+        if password1 == password2:
+            hash_ = gen_hash(password1, method=method)
+            password1 = ''
+            password2 = ''
+        else:
+            print('Passwords do not match!', file=sys.stderr)
+            sys.exit(1)
+    print(hash_)
+
+
+if __name__ == '__main__':
+    main()
