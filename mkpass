@@ -3,6 +3,7 @@
 # Thanks: https://unix.stackexchange.com/a/76337
 # Thanks: https://stackoverflow.com/a/31124505
 
+import re
 import sys
 import crypt
 import getpass
@@ -40,6 +41,9 @@ def parse_args():
         default=crypt.methods[0].name,
         help=('hashing method to use, '
               'the strongest method will be used by default'))
+    parser.add_argument('-w', '--wordlist', 
+        help=('dictionary words to use when evaluating password '
+              'complexity'))
     parser.add_argument(
         'password', nargs='?',
         help='if not provided a password propt will be used')
@@ -47,22 +51,140 @@ def parse_args():
     return args
 
 
+def count_lines(filename):
+    def blocks(files, size=65536):
+        while True:
+            b = files.read(size)
+            if not b: break
+            yield b
+
+    with open(filename, "r",encoding="utf-8",errors='ignore') as f:
+        return sum(bl.count("\n") for bl in blocks(f))
+
+
+class PasswordComplexityError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+
+class PasswordComplexityChecker():
+    def __init__(self, minimum_length=10, dictionary=None):
+        self.minimum_length = minimum_length
+        self.minimum_groups = 3
+        self.username_check = True
+        self.fullname_check = True
+        # how many letters of security does a word give, 0 disables the feature
+        # 2 is about right for trully random words, while 1 is better for
+        self.word_char_eq = 1.5
+        self.word_dictionary = dictionary
+
+    def check_password(self, password, username=None, fullname=None):
+        if self.minimum_length:
+            self._check_length(password)
+        if self.minimum_groups:
+            self._check_groups(password)
+        if username and self.username_check:
+            self._check_username(password, username)
+        if fullname and self.fullname_check:
+            self._check_fullname(password, fullname)
+        if self.word_char_eq and self.word_dictionary and self.minimum_length:
+            self._check_words(password)
+
+    def _check_length(self, password):
+        if len(password) < self.minimum_length:
+            raise PasswordComplexityError(("""
+Password is too short, must be at least {:d} characters long.
+""").format(self.minimum_length))
+
+    def _check_groups(self, password):
+        has_lowercase = any(c.islower() for c in password)
+        has_uppercase = any(c.isupper() for c in password)
+        has_number = any(c.isdecimal() for c in password)
+        has_symbol = any(
+            not (c.islower() or c.isupper() or c.isdecimal())
+            for c in password)
+        num_groups = (has_lowercase + has_uppercase +
+                      has_number + has_symbol)
+        if num_groups < self.minimum_groups:
+            raise PasswordComplexityError(("""
+Password must contain at least {:d} of the following
+4 groups:
+  Lowercase letters
+  Uppercase letters
+  Numbers
+  Symbols
+""").format(self.minimum_groups))
+
+    @staticmethod
+    def _check_username(password, username):
+        username = username.lower()
+        password = ''.join(c for c in password.lower() if c in username)
+        if username in password:
+            raise PasswordComplexityError("""
+Password cannot contain username.
+""")
+
+    @staticmethod
+    def _check_fullname(password, fullname):
+        fullname = fullname.lower()
+        password = ''.join(c for c in password.lower() if c in fullname)
+        for name in fullname.split():
+            if name in password:
+                raise PasswordComplexityError("""
+Password cannot contain any part of the user's name.
+""")
+
+    def _check_words(self, password):
+        word_count = 0
+        password = password.lower()
+        with open(self.word_dictionary) as dictionary:
+            lines = dictionary.readlines()
+        words = [l.strip().lower() for l in lines]
+        words.sort(key=len, reverse=True)
+        for word in words:
+            if len(word) > 1 and word in password:
+                password = password.replace(word, '')
+                word_count = word_count + 1
+        # Remove joining characters.
+        password = re.sub(r'(.)(?=\1)', '', password)
+        total_length = len(password) + int(word_count*self.word_char_eq)
+        if total_length < self.minimum_length:
+            raise PasswordComplexityError("""
+Password contains too many dictionary words.  Either increasee the
+length of the password to create a long passphrase or avoid the use of
+dictionary words.
+""")
+
+
 def main():
     args = parse_args()
     method = [m for m in crypt.methods if m.name == args['method']][0]
+    checker = PasswordComplexityChecker(dictionary=args['wordlist'])
     if args['password']:
-        hash_ = gen_hash(args['password'], method=method)
+        password = args['password']
     else:
-        password1 = getpass.getpass()
+        username = input('Enter username: ')
+        fullname = input('Enter full name: ')
+        password = getpass.getpass('Enter new password: ')
         password2 = getpass.getpass('Renter password: ')
-        if password1 == password2:
-            hash_ = gen_hash(password1, method=method)
-            password1 = ''
-            password2 = ''
-        else:
-            print('Passwords do not match!', file=sys.stderr)
-            sys.exit(1)
-    print(hash_)
+        good_password = False
+        while not good_password:
+            while password != password2:
+                print('Passwords do not match!', file=sys.stderr)
+                password = getpass.getpass('Enter new password: ')
+                password2 = getpass.getpass('Renter password: ')
+            try:
+                checker.check_password(
+                    password, username=username, fullname=fullname)
+                good_password = True
+            except PasswordComplexityError as err:
+                print(err, file=sys.stderr)
+                password = getpass.getpass('Enter new password: ')
+                password2 = getpass.getpass('Renter password: ')
+    if not all(ord(c) < 128 for c in password):
+        print('Password must be in ascii.', file=sys.stderr)
+        sys.exit(1)
+    print(gen_hash(password, method=method))
 
 
 if __name__ == '__main__':
