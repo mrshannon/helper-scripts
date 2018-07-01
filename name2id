@@ -19,6 +19,17 @@ import hashlib
 
 def gen_id(name, extended=False):
     """Generate a numerical ID from a user/group name.
+
+    The returned UID/GID will be 4096 or greater, or 65536 or greater if
+    32-bit UID/GIDs are enabled.
+
+    Parameters
+    ----------
+    name : str
+        User or group name to generate the UID/GID for.
+    extended : bool, optional
+        Enable 32-bit (instead of 16-bit) UID/GID numbers.
+
     """
     digest = int(hashlib.sha1(name.encode('ascii')).hexdigest(), 16)
     if extended:
