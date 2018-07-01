@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+
+
+import os
+import sys
+import signal
+import argparse
+import time
+import subprocess
+from enum import Enum
+
+
+# remove metavar on short arguments.
+class CustomHelpFormatter(argparse.HelpFormatter):
+    def _format_action_invocation(self, action):
+        if not action.option_strings or action.nargs == 0:
+            return super()._format_action_invocation(action)
+        default = self._get_default_metavar_for_optional(action)
+        args_string = self._format_args(action, default)
+        return ', '.join(action.option_strings) + ' ' + args_string
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        formatter_class=CustomHelpFormatter,
+        description=('Blink the activity light of a hard drive to make '
+                     'it easy to find.'))
+    parser.add_argument(
+        'drive', type=str, help='full path to drive')
+    subparsers = parser.add_subparsers(
+        title='method', dest='method',
+        description='Blink method to use.')
+
+    period_parser = subparsers.add_parser(
+        'period', help='Blink at a steady frequency.',
+        description='Blink at a steady frequency.')
+    period_parser.add_argument(
+        'period', type=float, help='cyclic period in seconds')
+
+    pattern_parser = subparsers.add_parser(
+        'pattern', help='Blink with a user defined pattern.',
+        description='Blink with a user defined pattern.')
+    pattern_parser.add_argument(
+        'pattern', nargs='*', type=float,
+        help=('number of seconds to be on/off, starting with on, '
+              'cycle will repeat'))
+
+    morse_parser = subparsers.add_parser(
+        'morse', help='Blink a morse code message.',
+        description='Blink a morse code message.')
+    morse_parser.add_argument(
+        '-t', '--time-unit', type=float, default=0.1,
+        help=('set the time unit (the length of a dot) in seconds, '
+        'the default is 0.1 second'))
+    morse_parser.add_argument(
+        'message', type=str,
+        help=('a message that will be encoded as morse code, the '
+              'pattern will be printed for those that do not know '
+              'morse code'))
+
+    return vars(parser.parse_args())
+
+
+class Morse(object):
+    pass
+
+class Dot(Morse):
+    def __eq__(self, other):
+        return isinstance(other, Dot)
+    def __str__(self):
+        return '●'
+        # return '.'
+
+class Dash(Morse):
+    def __eq__(self, other):
+        return isinstance(other, Dash)
+    def __str__(self):
+        return '███'
+        # return '---'
+
+
+class Blinker(object):
+
+    DOT = Dot()
+    DASH = Dash()
+    MORSE = {
+        'A': [DOT, DASH],
+        'B': [DASH, DOT, DOT, DOT],
+        'C': [DASH, DOT],
+        'D': [DASH, DOT, DOT],
+        'E': [DOT],
+        'F': [DOT, DOT, DASH, DOT],
+        'G': [DASH, DASH, DOT],
+        'H': [DOT, DOT, DOT, DOT],
+        'I': [DOT, DOT],
+        'J': [DOT, DASH, DASH, DASH],
+        'K': [DASH, DOT, DASH],
+        'L': [DOT, DASH, DOT, DOT],
+        'M': [DASH, DASH],
+        'N': [DASH, DOT],
+        'O': [DASH, DASH, DASH],
+        'P': [DOT, DASH, DASH, DOT],
+        'Q': [DASH, DASH, DOT, DASH],
+        'R': [DOT, DASH, DOT],
+        'S': [DOT, DOT, DOT],
+        'T': [DASH],
+        'U': [DOT, DOT, DOT],
+        'V': [DOT, DOT, DOT, DASH],
+        'W': [DOT, DASH, DASH],
+        'X': [DASH, DOT, DOT, DASH],
+        'Y': [DASH, DOT, DASH, DASH],
+        'Z': [DASH, DASH, DOT, DOT],
+        '1': [DOT, DASH, DASH, DASH, DASH],
+        '2': [DOT, DOT, DASH, DASH, DASH],
+        '3': [DOT, DOT, DOT, DASH, DASH],
+        '4': [DOT, DOT, DOT, DOT, DASH],
+        '5': [DOT, DOT, DOT, DOT, DOT],
+        '6': [DASH, DOT, DOT, DOT, DOT],
+        '7': [DASH, DASH, DOT, DOT, DOT],
+        '8': [DASH, DASH, DASH, DOT, DOT],
+        '9': [DASH, DASH, DASH, DASH, DOT],
+        '0': [DASH, DASH, DASH, DASH, DASH]
+    }
+
+    def __init__(self, drive):
+        self.drive = drive
+        self._calibrate()
+
+    def _read(self, blocks):
+        # TODO: Check for root and add error handling.
+        args = ['dd', 'if={:s}'.format(self.drive), 'of=/dev/null',
+                'bs=4096', 'count={:d}'.format(int(blocks))]
+        with open(os.devnull, 'w') as FNULL:
+            subprocess.run(args, check=True, stdout=FNULL, stderr=FNULL)
+
+    def _calibrate(self):
+        tic = time.time()
+        self._read(10000)
+        toc = time.time()
+        self._blocks_per_second = int(10000/(toc-tic))
+
+    def on(self, duration):
+        self._read(duration * self._blocks_per_second)
+
+    def off(self, duration):
+        time.sleep(duration)
+
+    def _pattern(self, pattern):
+        on = False
+        for seconds in pattern:
+            if on:
+                self.off(seconds)
+                on = False
+            else:
+                self.on(seconds)
+                on = True
+
+    def _morse(self, message, time_unit):
+        pass
+
+    def _sanitize_message(self, message):
+        message = ' '.join(message.split()).upper()
+        message = ''.join(
+            c for c in message
+            if c.isalpha() or c.isnumeric() or c == ' ')
+        return message
+
+    def _print_message(self, message):
+        pattern = []
+        for c in message:
+            if c == ' ':
+                # TODO: add check for first char
+                pattern = pattern[:-1]
+                pattern.append(7*' ')
+            else:
+                for e in self.MORSE[c]:
+                    if e == Dot():
+                        pattern.append(str(self.DOT))
+                    else:
+                        pattern.append(str(self.DASH))
+                    pattern.append(' ')
+                pattern = pattern[:-1]
+                pattern.append(3*' ')
+        print(''.join(pattern))
+
+    def period(self, period=1, repeat=None):
+        self.pattern([period/2, period/2], repeat)
+
+    def pattern(self, pattern=[0.5, 0.5], repeat=None):
+        if not repeat:
+            while True:
+                self._pattern(pattern)
+        else:
+            for _ in range(0, repeat):
+                self._pattern(pattern)
+
+    def morse(self, message='SOS', time_unit=1, repeat=None):
+        message = self._sanitize_message(message)
+        self._print_message(message)
+        pattern = []
+        for c in message:
+            if c == ' ':
+                # TODO: add check for first char
+                pattern = pattern[:-1]
+                pattern.append(7*time_unit)
+            else:
+                for e in self.MORSE[c]:
+                    if e == Dot():
+                        pattern.append(1*time_unit)
+                    else:
+                        pattern.append(3*time_unit)
+                    pattern.append(time_unit)
+                pattern = pattern[:-1]
+                pattern.append(3*time_unit)
+        pattern.append(3*7*time_unit)
+        self.pattern(pattern, repeat)
+
+def main():
+    args = parse_args()
+    blinker = Blinker(args['drive'])
+    if args['method'] == 'period':
+        blinker.period(args['period'])
+    elif args['method'] == 'pattern':
+        blinker.pattern(args['pattern'])
+    elif args['method'] == 'morse':
+        blinker.morse(args['message'], time_unit=args['time_unit'])
+
+
+def ctrl_c(signal, frame):
+    print('\nExiting...')
+    sys.exit(0)
+
+
+if __name__ == '__main__':
+    signal.signal(signal.SIGINT, ctrl_c)
+    main()
