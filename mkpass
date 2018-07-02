@@ -6,11 +6,17 @@
 import re
 import sys
 import crypt
+import signal
 import getpass
 import argparse
 
 
 __all__ = ('gen_hash',)
+
+
+def ctrl_c(signal, frame):
+    print('\nExiting...')
+    sys.exit(0)
 
 
 def gen_hash(password, method):
@@ -42,11 +48,11 @@ def parse_args():
         help=('hashing method to use, '
               'the strongest method will be used by default'))
     parser.add_argument('-w', '--wordlist', 
-        help=('dictionary words to use when evaluating password '
-              'complexity'))
+        help=('file of dictionary words to use when evaluating '
+              'password complexity'))
     parser.add_argument(
         'password', nargs='?',
-        help='if not provided a password propt will be used')
+        help='if not provided a password, a prompt will be used')
     args = vars(parser.parse_args())
     return args
 
@@ -107,8 +113,7 @@ Password is too short, must be at least {:d} characters long.
                       has_number + has_symbol)
         if num_groups < self.minimum_groups:
             raise PasswordComplexityError(("""
-Password must contain at least {:d} of the following
-4 groups:
+Password must contain at least {:d} of the following 4 groups:
   Lowercase letters
   Uppercase letters
   Numbers
@@ -150,7 +155,7 @@ Password cannot contain any part of the user's name.
         total_length = len(password) + int(word_count*self.word_char_eq)
         if total_length < self.minimum_length:
             raise PasswordComplexityError("""
-Password contains too many dictionary words.  Either increasee the
+Password contains too many dictionary words.  Either increase the
 length of the password to create a long passphrase or avoid the use of
 dictionary words.
 """)
@@ -166,13 +171,13 @@ def main():
         username = input('Enter username: ')
         fullname = input('Enter full name: ')
         password = getpass.getpass('Enter new password: ')
-        password2 = getpass.getpass('Renter password: ')
+        password2 = getpass.getpass('Re-enter password: ')
         good_password = False
         while not good_password:
             while password != password2:
-                print('Passwords do not match!', file=sys.stderr)
+                print('\nPasswords do not match!\n', file=sys.stderr)
                 password = getpass.getpass('Enter new password: ')
-                password2 = getpass.getpass('Renter password: ')
+                password2 = getpass.getpass('Re-enter password: ')
             try:
                 checker.check_password(
                     password, username=username, fullname=fullname)
@@ -180,7 +185,7 @@ def main():
             except PasswordComplexityError as err:
                 print(err, file=sys.stderr)
                 password = getpass.getpass('Enter new password: ')
-                password2 = getpass.getpass('Renter password: ')
+                password2 = getpass.getpass('Re-enter password: ')
     if not all(ord(c) < 128 for c in password):
         print('Password must be in ascii.', file=sys.stderr)
         sys.exit(1)
@@ -188,4 +193,5 @@ def main():
 
 
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, ctrl_c)
     main()
